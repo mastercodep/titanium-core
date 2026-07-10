@@ -1,0 +1,39 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: TitaniumCore-Windows
+            binary: target/release/titanium-core.exe
+          - os: macos-latest
+            artifact: TitaniumCore-macOS
+            binary: target/release/titanium-core
+          - os: ubuntu-latest
+            artifact: TitaniumCore-Linux
+            binary: target/release/titanium-core
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux-Systembibliotheken
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+      - name: Kompilieren
+        run: cargo build --release
+      - name: Binary hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.binary }}

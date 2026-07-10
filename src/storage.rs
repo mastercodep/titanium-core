@@ -5,8 +5,21 @@ use std::fs;
 use std::path::PathBuf;
 
 pub fn data_dir() -> PathBuf {
-    let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
-    let dir = PathBuf::from(base).join("TitaniumCore");
+    // 1. Ausdrücklich gesetzter Pfad (praktisch für Server/systemd)
+    if let Ok(custom) = std::env::var("TITANIUM_DATA_DIR") {
+        let dir = PathBuf::from(custom);
+        let _ = fs::create_dir_all(&dir);
+        return dir;
+    }
+    // 2. Windows: %APPDATA%\TitaniumCore
+    let dir = if let Ok(appdata) = std::env::var("APPDATA") {
+        PathBuf::from(appdata).join("TitaniumCore")
+    } else if let Ok(home) = std::env::var("HOME") {
+        // 3. Linux/macOS: ~/.titaniumcore
+        PathBuf::from(home).join(".titaniumcore")
+    } else {
+        PathBuf::from(".").join("TitaniumCore")
+    };
     let _ = fs::create_dir_all(&dir);
     dir
 }

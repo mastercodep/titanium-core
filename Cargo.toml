@@ -4,10 +4,16 @@ version = "1.0.0"
 edition = "2021"
 description = "Titanium Core (TCORE) - dezentrale Kryptowährung mit Wallet, Miner und P2P-Netzwerk"
 
+[features]
+default = ["gui"]
+# Die grafische Oberfläche. Für Server-/Headless-Betrieb weglassen:
+#   cargo build --release --no-default-features
+gui = ["dep:eframe", "dep:egui", "dep:egui_plot"]
+
 [dependencies]
-eframe = "0.29"
-egui = "0.29"
-egui_plot = "0.29"
+eframe = { version = "0.29", optional = true }
+egui = { version = "0.29", optional = true }
+egui_plot = { version = "0.29", optional = true }
 serde = { version = "1", features = ["derive"] }
 bincode = "1.3"
 sha2 = "0.10"

@@ -24,6 +24,11 @@ pub struct Node {
     pub known_peers: Mutex<HashSet<String>>,
     pub mining: AtomicBool,
     pub mining_threads: AtomicUsize,
+    /// GPU-Mining nutzen, sofern eine GPU verfügbar ist
+    pub use_gpu: AtomicBool,
+    /// wird vom Miner gesetzt, sobald eine GPU erkannt wurde
+    pub gpu_available: AtomicBool,
+    pub gpu_name: Mutex<String>,
     pub hash_counter: AtomicU64,
     pub blocks_mined: AtomicU64,
     pub listen_port: u16,
@@ -54,6 +59,9 @@ impl Node {
                 .unwrap_or(4)
                 / 2)
             .max(1)),
+            use_gpu: AtomicBool::new(true),
+            gpu_available: AtomicBool::new(false),
+            gpu_name: Mutex::new(String::new()),
             hash_counter: AtomicU64::new(0),
             blocks_mined: AtomicU64::new(0),
             listen_port,

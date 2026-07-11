@@ -13,6 +13,7 @@
 mod app;
 mod block;
 mod chain;
+mod gpu;
 mod miner;
 mod nat;
 mod network;
@@ -30,6 +31,13 @@ use std::sync::Arc;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+
+    // Diagnose: GPU-Selbsttest, Korrektheitsprüfung und Benchmark
+    if args.iter().any(|a| a == "--gputest") {
+        gpu_selftest();
+        return;
+    }
+
     let headless = args.iter().any(|a| a == "--headless") || cfg!(not(feature = "gui"));
     let auto_mine = args.iter().any(|a| a == "--mine");
 
@@ -59,6 +67,64 @@ fn main() {
             eprintln!("GUI-Fehler: {e}");
         }
     }
+}
+
+/// Prüft die GPU: Selbsttest (im init), echte Nonce-Suche mit CPU-Gegenprüfung, Benchmark.
+fn gpu_selftest() {
+    use block::BlockHeader;
+    println!("Suche GPU / OpenCL ...");
+    let Some(g) = gpu::GpuMiner::init() else {
+        println!("Keine nutzbare GPU gefunden (oder Selbsttest fehlgeschlagen). Es würde die CPU genutzt.");
+        return;
+    };
+    println!("GPU erkannt: {}", g.device_name);
+    println!("Selbsttest (GPU-Hash == CPU-Hash): BESTANDEN");
+
+    // Korrektheitsprüfung: leichten Nonce auf der GPU finden und auf der CPU gegenprüfen
+    let header = BlockHeader {
+        version: 1,
+        height: 1,
+        prev_hash: [0u8; 32],
+        merkle_root: [0x5au8; 32],
+        timestamp: 1_700_000_000,
+        target: u128::MAX >> 20, // relativ leicht
+        nonce: 0,
+    };
+    let bytes = bincode::serialize(&header).unwrap();
+    let mut hb = [0u8; 108];
+    hb.copy_from_slice(&bytes);
+    match g.search(&hb, header.target, 0) {
+        Some(nonce) => {
+            let mut h = header.clone();
+            h.nonce = nonce;
+            if h.meets_target() {
+                println!("Nonce-Suche: GPU fand Nonce {nonce}, CPU bestätigt gültig ✓");
+            } else {
+                println!("FEHLER: GPU meldete Nonce {nonce}, CPU lehnt ab ✗");
+                return;
+            }
+        }
+        None => println!("(kein Treffer im ersten Batch — bei diesem Target selten, aber möglich)"),
+    }
+
+    // Benchmark: unerfüllbares Target, Durchsatz messen
+    let bench_header = BlockHeader {
+        target: 0,
+        ..header
+    };
+    let bb = bincode::serialize(&bench_header).unwrap();
+    let mut bhb = [0u8; 108];
+    bhb.copy_from_slice(&bb);
+    let start = std::time::Instant::now();
+    let mut hashes: u64 = 0;
+    let mut base: u64 = 0;
+    while start.elapsed().as_secs_f64() < 3.0 {
+        g.search(&bhb, 0, base);
+        hashes += g.batch;
+        base = base.wrapping_add(g.batch);
+    }
+    let rate = hashes as f64 / start.elapsed().as_secs_f64();
+    println!("Benchmark: {:.2} MH/s auf der GPU", rate / 1e6);
 }
 
 /// Server-Betrieb ohne Oberfläche: läuft dauerhaft, gibt den Status auf der Konsole aus.

@@ -10,16 +10,89 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub fn spawn_miner(node: Arc<Node>) {
-    std::thread::spawn(move || loop {
-        if !node.mining.load(Ordering::Relaxed) {
-            std::thread::sleep(Duration::from_millis(250));
-            continue;
+    std::thread::spawn(move || {
+        // GPU einmalig initialisieren (inkl. Selbsttest gegen den CPU-Pfad)
+        let gpu = crate::gpu::GpuMiner::init();
+        match &gpu {
+            Some(g) => {
+                node.gpu_available.store(true, Ordering::Relaxed);
+                *node.gpu_name.lock().unwrap() = g.device_name.clone();
+                node.log(format!(
+                    "GPU erkannt: {} — GPU-Mining verfügbar.",
+                    g.device_name
+                ));
+            }
+            None => {
+                node.gpu_available.store(false, Ordering::Relaxed);
+                node.log("Keine nutzbare GPU/OpenCL gefunden — Mining läuft auf der CPU.");
+            }
         }
-        let Some(block) = build_template(&node) else {
-            node.mining.store(false, Ordering::Relaxed);
-            node.log("Mining gestoppt: kein Wallet vorhanden.");
-            continue;
-        };
+
+        loop {
+            if !node.mining.load(Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(250));
+                continue;
+            }
+            let Some(block) = build_template(&node) else {
+                node.mining.store(false, Ordering::Relaxed);
+                node.log("Mining gestoppt: kein Wallet vorhanden.");
+                continue;
+            };
+            let use_gpu = node.use_gpu.load(Ordering::Relaxed) && gpu.is_some();
+            let winner = if use_gpu {
+                mine_gpu(&node, &block, gpu.as_ref().unwrap())
+            } else {
+                mine_cpu(&node, block.clone())
+            };
+            if let Some(nonce) = winner {
+                let mut b = block;
+                b.header.nonce = nonce;
+                let _ = node.submit_block(b);
+            }
+        }
+    });
+}
+
+/// GPU-Mining eines Block-Templates. Gibt den Gewinner-Nonce zurück oder None,
+/// wenn abgebrochen wird (Template veraltet, Mining aus, GPU abgewählt).
+fn mine_gpu(node: &Arc<Node>, block: &Block, gpu: &crate::gpu::GpuMiner) -> Option<u64> {
+    let bytes = bincode::serialize(&block.header).unwrap();
+    if bytes.len() != 108 {
+        // Unerwartetes Format — sicher auf CPU ausweichen
+        return mine_cpu(node, block.clone());
+    }
+    let mut header = [0u8; 108];
+    header.copy_from_slice(&bytes);
+    let target = block.header.target;
+    let tip_at_start = block.header.prev_hash;
+    let started = Instant::now();
+    let mut base: u64 = 0;
+    loop {
+        if let Some(nonce) = gpu.search(&header, target, base) {
+            // Auf der CPU gegenprüfen, bevor der Block eingereicht wird
+            let mut b = block.clone();
+            b.header.nonce = nonce;
+            if b.header.meets_target() {
+                node.hash_counter.fetch_add(gpu.batch, Ordering::Relaxed);
+                return Some(nonce);
+            }
+        }
+        node.hash_counter.fetch_add(gpu.batch, Ordering::Relaxed);
+        base = base.wrapping_add(gpu.batch);
+        if !node.mining.load(Ordering::Relaxed) || !node.use_gpu.load(Ordering::Relaxed) {
+            return None;
+        }
+        if started.elapsed() > Duration::from_secs(10)
+            || node.chain.lock().unwrap().tip_hash() != tip_at_start
+        {
+            return None;
+        }
+    }
+}
+
+/// CPU-Mining mit mehreren Threads. Gibt den Gewinner-Nonce zurück oder None.
+fn mine_cpu(node: &Arc<Node>, block: Block) -> Option<u64> {
+    {
         let threads = node.mining_threads.load(Ordering::Relaxed).max(1);
         let stop = AtomicBool::new(false);
         let winner: Mutex<Option<u64>> = Mutex::new(None);
@@ -68,13 +141,8 @@ pub fn spawn_miner(node: Arc<Node>) {
         });
 
         let found = *winner.lock().unwrap();
-        if let Some(nonce) = found {
-            let mut b = block;
-            b.header.nonce = nonce;
-            // submit_block validiert erneut; falls das Netzwerk schneller war, wird abgelehnt
-            let _ = node.submit_block(b);
-        }
-    });
+        found
+    }
 }
 
 fn build_template(node: &Arc<Node>) -> Option<Block> {

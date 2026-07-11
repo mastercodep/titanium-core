@@ -3199,6 +3199,7 @@ dependencies = [
  "egui_plot",
  "hex",
  "igd",
+ "libloading",
  "rand",
  "serde",
  "sha2",

@@ -459,13 +459,46 @@ impl App {
                     );
                 });
             });
-            ui.add_space(10.0);
-            let mut threads = self.node.mining_threads.load(Ordering::Relaxed);
-            ui.horizontal(|ui| {
-                ui.label("CPU-Threads:");
-                if ui.add(egui::Slider::new(&mut threads, 1..=max_threads)).changed() {
-                    self.node.mining_threads.store(threads, Ordering::Relaxed);
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(8.0);
+            // Rechen-Backend: GPU oder CPU
+            let gpu_available = self.node.gpu_available.load(Ordering::Relaxed);
+            if gpu_available {
+                let gpu_name = self.node.gpu_name.lock().unwrap().clone();
+                let mut use_gpu = self.node.use_gpu.load(Ordering::Relaxed);
+                if ui
+                    .checkbox(
+                        &mut use_gpu,
+                        RichText::new(format!("⚡ GPU-Mining nutzen  ({gpu_name})")).size(14.0),
+                    )
+                    .changed()
+                {
+                    self.node.use_gpu.store(use_gpu, Ordering::Relaxed);
                 }
+                let (txt, col) = if use_gpu {
+                    ("Aktives Backend: GPU", theme::GREEN)
+                } else {
+                    ("Aktives Backend: CPU", theme::TITAN_DARK)
+                };
+                ui.label(RichText::new(txt).size(12.0).color(col));
+            } else {
+                ui.label(
+                    RichText::new("Keine GPU/OpenCL erkannt — Mining läuft auf der CPU.")
+                        .size(12.0)
+                        .color(theme::TITAN_DARK),
+                );
+            }
+            ui.add_space(8.0);
+            let cpu_active = !gpu_available || !self.node.use_gpu.load(Ordering::Relaxed);
+            ui.add_enabled_ui(cpu_active, |ui| {
+                let mut threads = self.node.mining_threads.load(Ordering::Relaxed);
+                ui.horizontal(|ui| {
+                    ui.label("CPU-Threads:");
+                    if ui.add(egui::Slider::new(&mut threads, 1..=max_threads)).changed() {
+                        self.node.mining_threads.store(threads, Ordering::Relaxed);
+                    }
+                });
             });
         });
         ui.add_space(14.0);

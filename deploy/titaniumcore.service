@@ -1,0 +1,17 @@
+[Unit]
+Description=Titanium Core (TCORE) Haupt-Node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Reiner Seed-/Relay-Node. Zum Mitminen ExecStart um "--mine" ergaenzen.
+ExecStart=/opt/titaniumcore/titanium-core-node --headless
+Environment=TITANIUM_DATA_DIR=/opt/titaniumcore/data
+Restart=always
+RestartSec=5
+User=root
+# Minecraft laeuft unabhaengig weiter; dieser Dienst nutzt nur Port 24333.
+
+[Install]
+WantedBy=multi-user.target

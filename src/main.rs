@@ -40,6 +40,7 @@ fn main() {
     network::spawn_connector(node.clone());
     nat::spawn_upnp(node.clone());
     nat::spawn_dyndns(node.clone());
+    miner::spawn_miner(node.clone());
 
     // Kette regelmäßig sichern
     {

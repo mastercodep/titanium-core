@@ -2,3 +2,6 @@
 *.dat
 dyndns.txt
 peers.txt
+# Lokale Arbeitsnotizen fuer Claude Code - NIEMALS veroeffentlichen
+CLAUDE.md
+CLAUDE.local.md
